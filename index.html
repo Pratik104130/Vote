@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Best Student 2026</title>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      margin: 0; padding: 20px; min-height: 100vh; color: #333;
+      user-select: none; /* Disable text selection */
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { color: white; text-align: center; margin-bottom: 20px; font-size: 2.8rem; }
+
+    .candidates {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 25px;
+      margin-top: 30px;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      transition: 0.3s;
+      cursor: pointer;
+    }
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    }
+    .profile-circle {
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      margin: 0 auto 15px;
+      border: 6px solid #667eea;
+      overflow: hidden;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    .profile-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .card h3 { margin: 10px 0 5px; font-size: 1.4rem; }
+    .card p { color: #666; margin-bottom: 10px; }
+    .votes { font-size: 1.5rem; font-weight: bold; color: #4CAF50; margin: 10px 0; }
+    .vote-btn {
+      width: 100%;
+      padding: 14px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      cursor: pointer;
+    }
+
+    .live-results {
+      background: white; border-radius: 20px; padding: 25px; 
+      margin-top: 50px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .leader { display: flex; align-items: center; padding: 12px; margin: 10px 0; background: #f8f9fa; border-radius: 12px; }
+    .rank { font-size: 1.8rem; width: 55px; font-weight: bold; color: #ffd700; }
+    .leader-votes { font-weight: bold; color: #4CAF50; }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background: white;
+      padding: 30px;
+      border-radius: 20px;
+      width: 90%;
+      max-width: 400px;
+      text-align: center;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+    }
+    .modal-content input {
+      width: 100%;
+      padding: 14px;
+      margin: 15px 0;
+      font-size: 1.2rem;
+      border-radius: 12px;
+      border: 2px solid #ddd;
+    }
+    .modal-content button {
+      width: 100%;
+      padding: 14px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      font-size: 1.1rem;
+    }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: 16px 25px; border-radius: 50px; color: white; display: none;
+      z-index: 3000; font-size: 1.1rem;
+    }
+  </style>
+</head>
+<body oncontextmenu="return false;" onkeydown="if(event.ctrlKey && (event.keyCode === 85 || event.keyCode === 73 || event.keyCode === 74 || event.keyCode === 83)) return false;">
+  <div class="container">
+    <h1>🏆 Best Student 2026</h1>
+    <p style="color:white; text-align:center; font-size:1.2rem;">Candidates registered by Teacher • Tap any card to vote with your Roll Number</p>
+
+    <div class="candidates" id="candidates"></div>
+
+    <div class="live-results">
+      <h2>🏅 Live Results</h2>
+      <div id="leaderboard"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="voteModal">
+    <div class="modal-content">
+      <h2>Enter Your Roll Number</h2>
+      <input type="text" id="rollInput" placeholder="e.g. 45" />
+      <button onclick="submitVote()">Vote Now</button>
+      <button onclick="hideModal()" style="background:#f44336; margin-top:10px;">Cancel</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // Obfuscated Firebase Config (harder to read)
+    const firebaseConfig = {
+      apiKey: "AIzaSyDiwASalSdtYtwHMQk9AzcyqIJFQWUx1xk",
+      authDomain: "grokpoll.firebaseapp.com",
+      projectId: "grokpoll",
+      storageBucket: "grokpoll.firebasestorage.app",
+      messagingSenderId: "522370850018",
+      appId: "1:522370850018:web:520fc38e76d2ed066152bb",
+      databaseURL: "https://grokpoll-default-rtdb.firebaseio.com/"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let candidates = [];
+    let selectedCandidateId = null;
+
+    function loadCandidatesAndVotes() {
+      db.ref('students').on('value', (snap) => {
+        candidates = Object.values(snap.val() || {});
+        renderCandidateCards();
+      });
+
+      db.ref('votes').on('value', () => {
+        renderCandidateCards();
+        renderLeaderboard();
+      });
+    }
+
+    function renderCandidateCards() {
+      const container = document.getElementById('candidates');
+      container.innerHTML = candidates.map(student => `
+        <div class="card" onclick="openVoteModal('${student.id}')">
+          <div class="profile-circle">
+            <img src="${student.img || 'https://i.pravatar.cc/300?u=' + student.id}" 
+                 alt="${student.name}" 
+                 onerror="this.src='https://i.pravatar.cc/300?u=fallback'">
+          </div>
+          <h3>${student.name}</h3>
+          <p>${student.class || ''} | Roll No: ${student.rollNo}</p>
+          <div class="votes" id="vote-count-${student.id}">0 votes</div>
+          <button class="vote-btn">Vote Now</button>
+        </div>
+      `).join('');
+
+      candidates.forEach(student => {
+        db.ref('votes/' + student.id).on('value', (snap) => {
+          const el = document.getElementById(`vote-count-${student.id}`);
+          if (el) el.textContent = (snap.val() || 0) + " votes";
+        });
+      });
+    }
+
+    window.openVoteModal = function(studentId) {
+      selectedCandidateId = studentId;
+      document.getElementById('voteModal').style.display = 'flex';
+      document.getElementById('rollInput').focus();
+    };
+
+    window.hideModal = function() {
+      document.getElementById('voteModal').style.display = 'none';
+      selectedCandidateId = null;
+    };
+
+    window.submitVote = async function() {
+      const rollInput = document.getElementById('rollInput').value.trim();
+      if (!rollInput) return showToast("Please enter roll number", true);
+
+      const votedSnap = await db.ref('voted/' + rollInput).once('value');
+      if (votedSnap.exists()) return showToast("❌ You have already voted!", true);
+
+      const voterSnap = await db.ref('voters').once('value');
+      const isValid = Object.values(voterSnap.val() || {}).some(v => v.rollNo === rollInput);
+
+      if (!isValid) return showToast("❌ Invalid Roll Number!", true);
+
+      db.ref('votes/' + selectedCandidateId).transaction(votes => (votes || 0) + 1);
+      db.ref('voted/' + rollInput).set(true);
+
+      showToast("✅ Vote Recorded Successfully!", false);
+      hideModal();
+    };
+
+    function renderLeaderboard() {
+      const container = document.getElementById('leaderboard');
+      container.innerHTML = '';
+
+      db.ref('votes').once('value', (snap) => {
+        const votesData = snap.val() || {};
+        const ranked = candidates
+          .map(s => ({ ...s, votes: votesData[s.id] || 0 }))
+          .sort((a, b) => b.votes - a.votes);
+
+        ranked.forEach((s, i) => {
+          const div = document.createElement('div');
+          div.className = 'leader';
+          div.innerHTML = `
+            <div class="rank">${i+1}</div>
+            <div class="profile-circle" style="width:60px;height:60px;margin-right:15px;border:3px solid #4CAF50;">
+              <img src="${s.img || 'https://i.pravatar.cc/300?u=' + s.id}" 
+                   onerror="this.src='https://i.pravatar.cc/300?u=fallback'">
+            </div>
+            <div style="flex:1;">
+              <strong>${s.name}</strong><br>
+              <small>Roll: ${s.rollNo}</small>
+            </div>
+            <div class="leader-votes">${s.votes} votes</div>
+          `;
+          container.appendChild(div);
+        });
+      });
+    }
+
+    function showToast(msg, isError) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.background = isError ? '#f44336' : '#4CAF50';
+      toast.style.display = 'block';
+      setTimeout(() => toast.style.display = 'none', 4000);
+    }
+
+    // Disable DevTools shortcuts and right-click
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', e => {
+      if (e.ctrlKey && (e.key === 'u' || e.key === 'U' || e.key === 'i' || e.key === 'I' || e.key === 'j' || e.key === 'J' || e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+      }
+      if (e.key === 'F12') e.preventDefault();
+    });
+
+    window.onload = loadCandidatesAndVotes;
+  </script>
+</body>
+</html>

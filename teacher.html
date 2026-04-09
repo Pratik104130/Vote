@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teacher Panel - Manage Students & Votes</title>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <style>
+    body { 
+      font-family: 'Segoe UI', sans-serif; 
+      background: #f4f6f9; 
+      padding: 20px; 
+      margin: 0; 
+    }
+    .container { 
+      max-width: 900px; 
+      margin: 0 auto; 
+      background: white; 
+      border-radius: 20px; 
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
+      padding: 30px; 
+    }
+    h1 { text-align: center; color: #333; margin-bottom: 10px; }
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 30px;
+      margin: 20px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 12px;
+    }
+    .stat-box {
+      text-align: center;
+    }
+    .stat-box h3 { margin: 0; font-size: 1.1rem; color: #666; }
+    .stat-box p { font-size: 2rem; font-weight: bold; margin: 5px 0 0; color: #4CAF50; }
+
+    .form { 
+      background: #f8f9fa; 
+      padding: 25px; 
+      border-radius: 15px; 
+      margin-bottom: 30px; 
+    }
+    input { 
+      padding: 12px; 
+      margin: 8px 0; 
+      width: 100%; 
+      border-radius: 8px; 
+      border: 1px solid #ddd; 
+      font-size: 1rem; 
+    }
+    button { 
+      padding: 12px 25px; 
+      background: #2196F3; 
+      color: white; 
+      border: none; 
+      border-radius: 50px; 
+      cursor: pointer; 
+      font-size: 1.1rem; 
+      margin-top: 10px; 
+    }
+    button.reset { background: #f44336; }
+    button.clear-db { 
+      background: #b71c1c; 
+      color: white; 
+      font-size: 1.2rem; 
+      padding: 16px 30px; 
+      width: 100%; 
+      margin-top: 20px; 
+      font-weight: bold;
+    }
+
+    table { 
+      width: 100%; 
+      margin-top: 20px; 
+      border-collapse: collapse; 
+    }
+    th, td { 
+      padding: 14px; 
+      text-align: left; 
+      border-bottom: 1px solid #ddd; 
+    }
+    th { background: #f8f9fa; }
+    .delete-btn { 
+      background: #f44336; 
+      color: white; 
+      border: none; 
+      padding: 6px 12px; 
+      border-radius: 50px; 
+      cursor: pointer; 
+      font-size: 0.9rem; 
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>👩‍🏫 Teacher Panel</h1>
+    <p style="text-align:center; color:#666;">Add students • Limited roll numbers = No vote cheating</p>
+
+    <!-- Live Stats -->
+    <div class="stats">
+      <div class="stat-box">
+        <h3>Total Candidates</h3>
+        <p id="totalStudents">0</p>
+      </div>
+      <div class="stat-box">
+        <h3>Total Voters</h3>
+        <p id="totalVoters">0</p>
+      </div>
+      <div class="stat-box">
+        <h3>Total Votes Cast</h3>
+        <p id="totalVotes">0</p>
+      </div>
+    </div>
+
+    <!-- Add Student Form (Candidates) -->
+    <div class="form">
+      <h2>➕ Add Candidate (who can be voted for)</h2>
+      <input type="text" id="name" placeholder="Full Name" />
+      <input type="text" id="rollNo" placeholder="Roll Number" />
+      <input type="text" id="class" placeholder="Class (e.g. 10 - A)" />
+      <input type="text" id="img" placeholder="Photo URL (optional)" />
+
+      <button onclick="addStudent()">Add Candidate</button>
+    </div>
+
+    <h2>All Candidates</h2>
+    <table id="studentTable"></table>
+
+    <div style="margin-top: 40px; text-align: center;">
+      <button class="reset" onclick="resetAllVotes()">🔄 Reset All Votes Only (Keep students & voters)</button>
+    </div>
+
+    <!-- NEW: Clear Entire Database Button -->
+    <div style="margin-top: 20px; text-align: center;">
+      <button class="clear-db" onclick="clearEntireDatabase()">
+        🗑️ CLEAR ENTIRE DATABASE<br>
+        <small>(Deletes ALL candidates, voters, votes permanently)</small>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+  apiKey: "AIzaSyDiwASalSdtYtwHMQk9AzcyqIJFQWUx1xk",
+  authDomain: "grokpoll.firebaseapp.com",
+  projectId: "grokpoll",
+  storageBucket: "grokpoll.firebasestorage.app",
+  messagingSenderId: "522370850018",
+  appId: "1:522370850018:web:520fc38e76d2ed066152bb",
+  databaseURL: "https://grokpoll-default-rtdb.firebaseio.com/",
+  
+  measurementId: "G-5GY7ST1NSZ"
+};
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Add Candidate
+    window.addStudent = async function() {
+      const name = document.getElementById('name').value.trim();
+      const rollNo = document.getElementById('rollNo').value.trim();
+      const cls = document.getElementById('class').value.trim();
+      const img = document.getElementById('img').value.trim();
+
+      if (!name || !rollNo || !cls) {
+        alert("❌ Name, Roll Number and Class are required!");
+        return;
+      }
+
+      const studentsSnap = await db.ref('students').once('value');
+      const existing = studentsSnap.val() || {};
+      const duplicate = Object.values(existing).some(s => s.rollNo === rollNo);
+
+      if (duplicate) {
+        alert("⚠️ This Roll Number already exists for a candidate!");
+        return;
+      }
+
+      const studentId = 's' + Date.now();
+      await db.ref('students/' + studentId).set({
+        id: studentId,
+        name: name,
+        rollNo: rollNo,
+        class: cls,
+        img: img || `https://i.pravatar.cc/300?u=${studentId}`
+      });
+
+      alert(`✅ Candidate "${name}" added!`);
+      document.getElementById('name').value = '';
+      document.getElementById('rollNo').value = '';
+      document.getElementById('class').value = '';
+      document.getElementById('img').value = '';
+      loadStudents();
+    };
+
+    // Load Candidates Table
+    function loadStudents() {
+      db.ref('students').on('value', snapshot => {
+        const data = snapshot.val() || {};
+        let html = `<tr><th>Name</th><th>Roll No</th><th>Class</th><th>Photo</th><th>Action</th></tr>`;
+        let count = 0;
+
+        Object.values(data).forEach(s => {
+          count++;
+          html += `
+            <tr>
+              <td><strong>${s.name}</strong></td>
+              <td>${s.rollNo}</td>
+              <td>${s.class}</td>
+              <td><img src="${s.img}" width="50" height="50" style="border-radius:50%;"></td>
+              <td><button class="delete-btn" onclick="deleteStudent('${s.id}')">Delete</button></td>
+            </tr>`;
+        });
+
+        document.getElementById('studentTable').innerHTML = html;
+        document.getElementById('totalStudents').textContent = count;
+      });
+
+      // Live Voters count
+      db.ref('voters').on('value', snapshot => {
+        document.getElementById('totalVoters').textContent = Object.keys(snapshot.val() || {}).length;
+      });
+
+      // Live Votes count
+      db.ref('votes').on('value', snapshot => {
+        const votesData = snapshot.val() || {};
+        const total = Object.values(votesData).reduce((sum, v) => sum + (v || 0), 0);
+        document.getElementById('totalVotes').textContent = total;
+      });
+    }
+
+    window.deleteStudent = function(id) {
+      if (confirm("Delete this candidate?")) {
+        db.ref('students/' + id).remove();
+      }
+    };
+
+    // Reset Votes Only
+    window.resetAllVotes = async function() {
+      if (confirm("Reset ALL votes? Students and voters will stay.")) {
+        await db.ref('votes').set(null);
+        await db.ref('voted').set(null);
+        alert("✅ All votes reset!");
+      }
+    };
+
+    // NEW: Clear Entire Database
+    window.clearEntireDatabase = async function() {
+      if (!confirm("⚠️ DANGER ZONE ⚠️\n\nThis will PERMANENTLY delete:\n• All Candidates\n• All Voters\n• All Votes\n• Everything in the database\n\nAre you 100% sure?")) {
+        return;
+      }
+
+      const confirmText = prompt("Type 'CLEAR ALL' to confirm full database deletion:");
+      if (confirmText !== "CLEAR ALL") {
+        alert("❌ Action cancelled. Nothing was deleted.");
+        return;
+      }
+
+      try {
+        await db.ref('students').set(null);
+        await db.ref('voters').set(null);
+        await db.ref('votes').set(null);
+        await db.ref('voted').set(null);
+
+        alert("✅ Entire database has been completely cleared!");
+        loadStudents(); // Refresh everything
+      } catch (error) {
+        alert("Error while clearing database: " + error.message);
+      }
+    };
+
+    // Initialize
+    window.onload = function() {
+      loadStudents();
+    };
+  </script>
+</body>
+</html>

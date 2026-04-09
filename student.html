@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Best Student 2026</title>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      margin: 0; padding: 20px; min-height: 100vh; color: #333;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h1 { color: white; text-align: center; margin-bottom: 20px; font-size: 2.5rem; }
+
+    .add-section {
+      background: white;
+      padding: 25px;
+      border-radius: 20px;
+      max-width: 500px;
+      margin: 20px auto;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .add-section input {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 10px;
+      border: 2px solid #ddd;
+      font-size: 1.1rem;
+    }
+    .add-section button {
+      padding: 12px 30px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .candidates {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 25px;
+      margin-top: 30px;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+    .profile-circle {
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      margin: 0 auto 15px;
+      border: 5px solid #667eea;
+      overflow: hidden;
+    }
+    .profile-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .card h3 { margin: 10px 0 5px; font-size: 1.3rem; }
+    .votes { font-size: 1.4rem; font-weight: bold; color: #4CAF50; margin: 10px 0; }
+    .vote-btn {
+      width: 100%;
+      padding: 14px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      cursor: pointer;
+    }
+
+    .live-results {
+      background: white; border-radius: 20px; padding: 25px; 
+      margin-top: 50px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .leader { display: flex; align-items: center; padding: 12px; margin: 10px 0; background: #f8f9fa; border-radius: 12px; }
+    .rank { font-size: 1.8rem; width: 55px; font-weight: bold; color: #ffd700; }
+    .leader-votes { font-weight: bold; color: #4CAF50; }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: 16px 25px; border-radius: 50px; color: white; display: none;
+      z-index: 3000; font-size: 1.1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏆 Best Student 2026</h1>
+
+    <!-- Add Student Button Section (Middle) -->
+    <div class="add-section">
+      <h2>Add Student (Voter)</h2>
+      <input type="text" id="addName" placeholder="Full Name" />
+      <input type="text" id="addRollNo" placeholder="Roll Number (unique)" />
+      <button onclick="addStudent()">Add Student</button>
+    </div>
+
+    <!-- Roll Number Verification -->
+    <div class="add-section" id="rollSection">
+      <h2>Enter Your Roll Number to Vote</h2>
+      <input type="text" id="rollNo" placeholder="e.g. 45" />
+      <button onclick="verifyRollNo()">Register & Vote</button>
+    </div>
+
+    <!-- Voting Area -->
+    <div class="main-content" id="mainContent" style="display: none;">
+      <h2 style="color:white; text-align:center; margin-bottom:30px;">Choose the Best Student</h2>
+      <div class="candidates" id="candidates"></div>
+
+      <div class="live-results">
+        <h2>🏅 Live Results</h2>
+        <div id="leaderboard"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDiwASalSdtYtwHMQk9AzcyqIJFQWUx1xk",
+      authDomain: "grokpoll.firebaseapp.com",
+      projectId: "grokpoll",
+      storageBucket: "grokpoll.firebasestorage.app",
+      messagingSenderId: "522370850018",
+      appId: "1:522370850018:web:520fc38e76d2ed066152bb",
+      databaseURL: "https://grokpoll-default-rtdb.firebaseio.com/"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let currentRollNo = null;
+    let candidates = [];
+
+    // Add Student (Name + Roll Number only)
+    window.addStudent = async function() {
+      const name = document.getElementById('addName').value.trim();
+      const rollNo = document.getElementById('addRollNo').value.trim();
+
+      if (!name || !rollNo) {
+        showToast("Name and Roll Number are required!", true);
+        return;
+      }
+
+      // Check duplicate
+      const snap = await db.ref('voters').once('value');
+      const existing = snap.val() || {};
+      if (Object.values(existing).some(v => v.rollNo === rollNo)) {
+        showToast("❌ This Roll Number already exists!", true);
+        return;
+      }
+
+      const voterId = 'v' + Date.now();
+      await db.ref('voters/' + voterId).set({
+        id: voterId,
+        name: name,
+        rollNo: rollNo
+        // No class, no img
+      });
+
+      showToast(`✅ Student ${name} (Roll ${rollNo}) added!`, false);
+
+      // Clear inputs
+      document.getElementById('addName').value = '';
+      document.getElementById('addRollNo').value = '';
+    };
+
+    // Verify Roll Number
+    window.verifyRollNo = async function() {
+      const rollInput = document.getElementById('rollNo').value.trim();
+      if (!rollInput) return showToast("Please enter roll number", true);
+
+      const votedSnap = await db.ref('voted/' + rollInput).once('value');
+      if (votedSnap.exists()) return showToast("❌ You have already voted!", true);
+
+      const voterSnap = await db.ref('voters').once('value');
+      const voterList = Object.values(voterSnap.val() || {});
+      const isValid = voterList.some(v => v.rollNo === rollInput);
+
+      if (!isValid) return showToast("❌ Invalid Roll Number!", true);
+
+      // Load candidates
+      const candidateSnap = await db.ref('students').once('value');
+      candidates = Object.values(candidateSnap.val() || {});
+
+      if (candidates.length === 0) return showToast("No candidates yet!", true);
+
+      currentRollNo = rollInput;
+      document.getElementById('rollSection').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+
+      renderCandidates();
+      listenToLiveResults();
+    };
+
+    function renderCandidates() {
+      const container = document.getElementById('candidates');
+      container.innerHTML = candidates.map(student => `
+        <div class="card">
+          <div class="profile-circle">
+            <img src="\( {student.img || 'https://i.pravatar.cc/300?u=' + student.id}" alt=" \){student.name}">
+          </div>
+          <h3>${student.name}</h3>
+          <p>Roll No: ${student.rollNo}</p>
+          <div class="votes" id="vote-count-${student.id}">0 votes</div>
+          <button class="vote-btn" onclick="castVote('${student.id}')">Vote</button>
+        </div>
+      `).join('');
+    }
+
+    window.castVote = function(studentId) {
+      db.ref('votes/' + studentId).transaction(votes => (votes || 0) + 1);
+      db.ref('voted/' + currentRollNo).set(true);
+
+      showToast("✅ Vote Recorded! Thank You.", false);
+      setTimeout(() => location.reload(), 2000);
+    };
+
+    function listenToLiveResults() {
+      db.ref('votes').on('value', (snapshot) => {
+        const votesData = snapshot.val() || {};
+        candidates.forEach(student => {
+          const el = document.getElementById(`vote-count-${student.id}`);
+          if (el) el.textContent = (votesData[student.id] || 0) + " votes";
+        });
+        renderLiveLeaderboard(votesData);
+      });
+    }
+
+    function renderLiveLeaderboard(votesData) {
+      const container = document.getElementById('leaderboard');
+      container.innerHTML = '';
+
+      const ranked = candidates
+        .map(s => ({...s, votes: votesData[s.id] || 0}))
+        .sort((a, b) => b.votes - a.votes);
+
+      ranked.forEach((s, i) => {
+        const div = document.createElement('div');
+        div.className = 'leader';
+        div.innerHTML = `
+          <div class="rank">${i+1}</div>
+          <div style="flex:1;">
+            <strong>${s.name}</strong><br>
+            <small>Roll: ${s.rollNo}</small>
+          </div>
+          <div class="leader-votes">${s.votes} votes</div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function showToast(msg, isError) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.background = isError ? '#f44336' : '#4CAF50';
+      toast.style.display = 'block';
+      setTimeout(() => toast.style.display = 'none', 4000);
+    }
+  </script>
+</body>
+</html>
